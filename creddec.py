@@ -136,8 +136,9 @@ if __name__ == '__main__':
             print '-'*79
 
             enc_cred = vaultstruct.CREDENTIAL_FILE.parse(fin.read())
+            print enc_cred
 
-            cred_blob = blob.DPAPIBlob(enc_cred.data.raw)
+            cred_blob = blob.DPAPIBlob(enc_cred.blob)
 
             if umkp:
                 dec_cred, res_err = decrypt_blob(umkp, cred_blob)

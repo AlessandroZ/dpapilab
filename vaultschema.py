@@ -19,52 +19,28 @@
 # vault structs are a mix of my research and his research.
 """Windows Vaults Schema structures and helpers."""
 
-import construct
+from construct import *
 import struct
+
+#===============================================================================
+#                   Adapters -  Make the output more human readable
+#===============================================================================
 
 # Construct adapters.
 
-class GuidAdapter(construct.Adapter):
-    def _decode(self, obj, context):
-        return '{:08x}-{:04x}-{:04x}-{:04x}-{:s}'.format(
-            construct.ULInt32('foo').parse(obj[0:4]),
-            construct.ULInt16('foo').parse(obj[4:6]),
-            construct.ULInt16('foo').parse(obj[6:8]),
-            construct.UBInt16('foo').parse(obj[8:10]),
-            obj[10:16].encode('hex'))
+class GuidAdapter(Adapter):
+    def _decode(self, guid, context, path):
+        return '{data1:x}-{data2:x}-{data3:x}-{data4}-{data5}'.format(data1=guid.data1, data2=guid.data2, data3=guid.data3, data4=guid.data4.encode('hex')[:4], data5=guid.data4.encode('hex')[4:])
 
-
-def GUID(name):
-    return GuidAdapter(construct.Bytes(name, 16))
-
-
-class SidAdapter(construct.Adapter):
-    def _decode(self, obj, context):
-        el = [
-            int(construct.Byte('foo').parse(obj[0:1])),
-            (int(construct.ULInt32('foo').parse(obj[1:5])) +
-                (int(construct.ULInt16('foo').parse(obj[5:7])) << 32))]
-        
-        auth_sub_count = construct.Byte('foo').parse(obj[7:8])
-        for i in range(0, auth_sub_count):
-            el.append(construct.ULInt32('foo').parse(obj[8+i*4:]))
-            
-        return 'S-' + '-'.join([str(x) for x in el])
-
-
-def SID(name, length):
-    return SidAdapter(construct.Bytes(name, length))
-
-
-class BytesHexAdapter(construct.Adapter):
+class BytesHexAdapter(Adapter):
     '''Hex encoding output.'''
-    def _decode(self, obj, context):
+    def _decode(self, obj, context, path):
         return obj.encode('hex')
 
 
-class NumericPinAdapter(construct.Adapter):
+class NumericPinAdapter(Adapter):
     '''Helper to pretty print the numeric PIN code.'''
-    def _decode(self, obj, context):
+    def _decode(self, obj, context, path):
         try:
             pin = int(''.join(reversed(
                 [obj.data[i:i+2] for i in range(0, len(obj.data), 2)])), 16)
@@ -73,9 +49,9 @@ class NumericPinAdapter(construct.Adapter):
         return pin
 
 
-class UnicodeStringActiveSyncAdapter(construct.Adapter):
+class UnicodeStringActiveSyncAdapter(Adapter):
     '''Helper to pretty print string/hex and remove trailing zeroes.'''
-    def _decode(self, obj, context):
+    def _decode(self, obj, context, path):
         try:
             decoded = obj.decode('utf16')
             decoded = decoded.rstrip('\00').encode('utf8')
@@ -87,9 +63,9 @@ class UnicodeStringActiveSyncAdapter(construct.Adapter):
         return decoded
 
 
-class UnicodeOrHexAdapter(construct.Adapter):
+class UnicodeOrHexAdapter(Adapter):
     '''Helper to pretty print string/hex and remove trailing zeroes.'''
-    def _decode(self, obj, context):
+    def _decode(self, obj, context, path):
         try:
             decoded = obj.decode('utf16')
             decoded = decoded.rstrip('\00').encode('utf8')
@@ -98,174 +74,181 @@ class UnicodeOrHexAdapter(construct.Adapter):
         return decoded
 
 
-class UnicodeRstripZero(construct.Adapter):
+class UnicodeRstripZero(Adapter):
     '''Helper to remove trailing zeroes.'''
-    def _decode(self, obj, context):
+    def _decode(self, obj, context, path):
         return obj.rstrip('\x00\x00')
 
 
-class  VaultSchemaActiveSyncAdapter(construct.Adapter):
-    def _decode(self, obj, context):
-        return (
-            'identity: {0:s}\nresource: {1:s}\nauthenticator: {2:s}'.format(
-                obj.identity.data, obj.resource.data, obj.authenticator.data))
+class  VaultSchemaActiveSyncAdapter(Adapter):
+    def _decode(self, obj, context, path):
+        return ('identity: {0:s}\nresource: {1:s}\nauthenticator: {2:s}'.format(
+                        obj.identity.data, 
+                        obj.resource.data, 
+                        obj.authenticator.data
+                    )
+                )
 
+class VaultSchemaPinAdapter(Adapter):
+    def _decode(self, obj, context, path):
+        return ('sid: {0:s}\nresource: {1:s}\npassword: {2:s}\npin: {3:d}'.format(
+                        obj.sid, 
+                        obj.resource.data, 
+                        obj.password.data, obj.pin
+                    )
+                )
 
-class VaultSchemaPinAdapter(construct.Adapter):
-    def _decode(self, obj, context):
-        return (
-            'sid: {0:s}\nresource: {1:s}\npassword: {2:s}\npin: {3:d}'.format(
-                obj.sid, obj.resource.data, obj.password.data, obj.pin))
-
-
-class VaultSchemaSimpleAdapter(construct.Adapter):
-    def _decode(self, obj, context):
+class VaultSchemaSimpleAdapter(Adapter):
+    def _decode(self, obj, context, path):
         dataout = str(bytearray(obj.data))
         return 'hex: {0:s}'.format(dataout.encode('hex'))
 
 
-class  VaultSchemaWebPasswordAdapter(construct.Adapter):
-    def _decode(self, obj, context):
-        return (
-            'identity: {0:s}\nresource: {1:s}\nauthenticator: {2:s}'.format(
-                obj.identity.data, obj.resource.data, obj.authenticator.data))
+class  VaultSchemaWebPasswordAdapter(Adapter):
+    def _decode(self, obj, context, path):
+        return ('identity: {0:s}\nresource: {1:s}\nauthenticator: {2:s}'.format(
+                        obj.identity.data, 
+                        obj.resource.data, 
+                        obj.authenticator.data
+                    )
+                )
 
+#===============================================================================
+#                               Common structs.
+#===============================================================================
 
 # Common structs.
 
-UNICODE_STRING_ACTIVESYNC = construct.Struct(
-    'UNICODE_STRING_ACTIVESYNC',
-    construct.ULInt32('length'),
-    UnicodeStringActiveSyncAdapter(
-        construct.Bytes('data', lambda ctx: ctx.length)))
-
-UNICODE_STRING_STRIP = construct.Struct(
-    'UNICODE_STRING_STRIP',
-    construct.ULInt32('length'),
-    UnicodeRstripZero(
-        construct.String('data', lambda ctx: ctx.length, encoding='utf16')))
-
-UNICODE_STRING_HEX = construct.Struct(
-    'UNICODE_STRING_HEX',
-    construct.ULInt32('length'),
-    UnicodeOrHexAdapter(construct.Bytes('data', lambda ctx: ctx.length)))
-
-SIZED_DATA = construct.Struct(
-    'SIZED_DATA',
-    construct.ULInt32('size'),
-    BytesHexAdapter(construct.Bytes('data', lambda ctx: ctx.size))
+GUID = Struct(
+    'data1' / Int32ul,
+    'data2' / Int16ul,
+    'data3' / Int16ul,
+    'data4' / Bytes(8),
 )
 
-construct.Struct(
-    'SIZED_DATA',
-    construct.ULInt32('size'),
-    BytesHexAdapter(construct.Bytes('data', lambda ctx: ctx.size))
+UNICODE_STRING_ACTIVESYNC = Struct(
+    'length'    / Int32ul,
+    'data'      / UnicodeStringActiveSyncAdapter(Bytes(this.length))
 )
+
+UNICODE_STRING_STRIP = Struct(
+    'length'    / Int32ul,
+    'data'      / UnicodeRstripZero(String(this.length, encoding='UTF_16_LE'))
+)
+
+UNICODE_STRING_HEX = Struct(
+    'length'    / Int32ul,
+    'data'      / UnicodeOrHexAdapter(Bytes(this.length))
+)
+
+SIZED_DATA = Struct(
+    'size'  / Int32ul,
+    'data'  / BytesHexAdapter(Bytes(this.size))
+)
+
+#===============================================================================
+#                               VAULT schemas 
+#===============================================================================
+
 
 # Vault file partial parsing
 
-VAULT_VSCH = construct.Struct(
-    'VAULT_VSCH',
-    construct.ULInt32('version'),
-    GUID('schema_guid'),
-    construct.ULInt32('vault_vsch_unknown_1'),
-    construct.ULInt32('count'),
-    construct.Rename('schema_name', UNICODE_STRING_STRIP)
+VAULT_VSCH = Struct(
+    'version'               / Int32ul,
+    'schema_guid'           / GuidAdapter(GUID), 
+    'vault_vsch_unknown_1'  / Int32ul,
+    'count'                 / Int32ul,
+    'schema_name'           / UNICODE_STRING_STRIP, 
 )
 
 # Generic Vault Schema
 
-VAULT_ATTRIBUTE_ITEM = construct.Struct(
-    'VAULT_ATTRIBUTE_ITEM',
-    construct.ULInt32('id'),
-    construct.Switch(
-        'item',
-        lambda ctx: ctx.id,
+VAULT_ATTRIBUTE_ITEM = Struct(
+    "id" / Enum(Int32ul,
+        resource        = 1, 
+        identity        = 2, 
+        authenticator   = 3,
+    ),
+    'item'  / Switch(this.id,
         {
-            1: construct.Rename('resource', UNICODE_STRING_HEX),
-            2: construct.Rename('identity', UNICODE_STRING_HEX),
-            3: construct.Rename('authenticator', UNICODE_STRING_HEX),
+            'resource'      : UNICODE_STRING_HEX,
+            'identity'      : UNICODE_STRING_HEX,
+            'authenticator' : UNICODE_STRING_HEX,
         },
-        default = construct.Rename('generic', SIZED_DATA))
+        default ='generic' / SIZED_DATA
+    ), 
 )
 
-VAULT_SCHEMA_GENERIC = construct.Struct(
-    'VAULT_SCHEMA_GENERIC',
-    construct.ULInt32('version'),
-    construct.ULInt32('count'),
-    construct.ULInt32('vault_schema_generic_unknown1'),
-    construct.Array(
-        lambda ctx: ctx.count,
-        VAULT_ATTRIBUTE_ITEM)   
+VAULT_SCHEMA_GENERIC = Struct(
+    'version'                           / Int32ul,
+    'count'                             / Int32ul,
+    'vault_schema_generic_unknown1'     / Int32ul,
+    'attribute_item'                    / Array(this.count, VAULT_ATTRIBUTE_ITEM) 
 )
 
 # Vault Simple Schema
 
 VAULT_SCHEMA_SIMPLE = VaultSchemaSimpleAdapter(
-    construct.Struct(
-        'VAULT_SCHEMA_SIMPLE',
-        construct.OptionalGreedyRange(construct.Byte('data'))
+    Struct(
+        'data' / GreedyRange(Byte),
     )
 )
 
 # PIN Logon Vault Resource Schema
 
 VAULT_SCHEMA_PIN = VaultSchemaPinAdapter(
-    construct.Struct(
-        'VAULT_SCHEMA_PIN',
-        construct.ULInt32('version'),
-        construct.Const(construct.ULInt32('count'), 4),
-        construct.ULInt32('vault_schema_pin_unknown1'),
-        construct.Const(construct.ULInt32('id_sid'), 2),
-        construct.ULInt32('sid_len'),
-        SID('sid', lambda ctx: ctx.sid_len),
-        construct.Const(construct.ULInt32('id_resource'), 1),
-        construct.Rename('resource', UNICODE_STRING_STRIP),
-        construct.Const(construct.ULInt32('id_password'), 3),
-        construct.Rename('password', UNICODE_STRING_STRIP),
-        construct.ULInt32('id_pin'),
-        NumericPinAdapter(construct.Rename('pin', SIZED_DATA))  
+    Struct(
+        'version'                   / Int32ul,
+        'count'                     / Int32ul,
+        'vault_schema_pin_unknown1' / Int32ul,
+        'id_sid'                    / Int32ul,
+        'sid_len'                   / Int32ul, 
+        'sid'                       / Bytes(this.sid_len),
+        'id_resource'               / Int32ul,
+        'resource'                  / UNICODE_STRING_STRIP, 
+        'id_password'               / Int32ul,
+        'password'                  / UNICODE_STRING_STRIP, 
+        'id_pin'                    / NumericPinAdapter(Int32ul),
+        'pin'                       / SIZED_DATA,
     )
 )
 
 # Windows Web Password Credential Schema
 
 VAULT_SCHEMA_WEB_PASSWORD = VaultSchemaWebPasswordAdapter(
-    construct.Struct(
-        'VAULT_SCHEMA_WEB_PASSWORD',
-        construct.ULInt32('version'),
-        construct.Const(construct.ULInt32('count'), 3),
-        construct.ULInt32('vault_schema_web_password_unknown1'),
-        construct.Const(construct.ULInt32('id_identity'), 2),
-        construct.Rename('identity', UNICODE_STRING_STRIP),
-        construct.Const(construct.ULInt32('id_resource'), 1),
-        construct.Rename('resource', UNICODE_STRING_STRIP),
-        construct.Const(construct.ULInt32('id_authenticator'), 3),
-        construct.Rename('authenticator', UNICODE_STRING_STRIP)
+    Struct(
+        'version'                               / Int32ul,
+        'count'                                 / Int32ul,
+        'vault_schema_web_password_unknown1'    / Int32ul,
+        'id_identity'                           / Int32ul,
+        'identity'                              / UNICODE_STRING_STRIP, 
+        'id_resource'                           / Int32ul,
+        'resource'                              / UNICODE_STRING_STRIP, 
+        'id_authenticator'                      / Int32ul,
+        'authenticator'                         / UNICODE_STRING_STRIP, 
     )
 )
 
 # Active Sync Credential Schema
 
 VAULT_SCHEMA_ACTIVESYNC = VaultSchemaActiveSyncAdapter(
-    construct.Struct(
-        'VAULT_SCHEMA_ACTIVESYNC',
-        construct.ULInt32('version'),
-        construct.Const(construct.ULInt32('count'), 3),
-        construct.ULInt32('vault_schema_activesync_unknown1'),
-        construct.Const(construct.ULInt32('id_identity'), 2),
-        construct.Rename('identity', UNICODE_STRING_STRIP),
-        construct.Const(construct.ULInt32('id_resource'), 1),
-        construct.Rename('resource', UNICODE_STRING_STRIP),
-        construct.Const(construct.ULInt32('id_authenticator'), 3),
-        construct.Rename('authenticator', UNICODE_STRING_ACTIVESYNC)
+    Struct(
+        'version'                           / Int32ul,
+        'count'                             / Int32ul,
+        'vault_schema_activesync_unknown1'  / Int32ul,
+        'id_identity'                       / Int32ul,
+        'identity'                          / UNICODE_STRING_STRIP, 
+        'id_resource'                       / Int32ul,
+        'resource'                          / UNICODE_STRING_STRIP, 
+        'id_authenticator'                  / Int32ul,
+        'authenticator'                     / UNICODE_STRING_ACTIVESYNC, 
     )
 )
 
 # Vault Schema Dict
 
 vault_schemas = {
-    u'ActiveSyncCredentialSchema': VAULT_SCHEMA_ACTIVESYNC,
-    u'PIN Logon Vault Resource Schema': VAULT_SCHEMA_PIN,
-    u'Windows Web Password Credential': VAULT_SCHEMA_WEB_PASSWORD,
+    u'ActiveSyncCredentialSchema'       : VAULT_SCHEMA_ACTIVESYNC,
+    u'PIN Logon Vault Resource Schema'  : VAULT_SCHEMA_PIN,
+    u'Windows Web Password Credential'  : VAULT_SCHEMA_WEB_PASSWORD,
 }

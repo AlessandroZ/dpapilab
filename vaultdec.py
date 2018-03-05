@@ -75,14 +75,14 @@ def decrypt_vault_attribute(vault_attr, key_aes128, key_aes256):
     if not vault_attr.size:
         return '', False
 
-    if vault_attr.has_iv:
-        cipher = AES.new(key_aes256, AES.MODE_CBC, vault_attr.iv)
+    if vault_attr.vault_attr_encrypted.has_iv:
+        cipher = AES.new(key_aes256, AES.MODE_CBC, vault_attr.vault_attr_encrypted.encrypted.iv)
         is_attribute_ex = True
     else:
-        cipher = AES.new(key_aes128)
+        cipher = AES.new(key_aes128, AES.MODE_CBC)
         is_attribute_ex = False
 
-    return cipher.decrypt(vault_attr.data), is_attribute_ex
+    return cipher.decrypt(vault_attr.vault_attr_encrypted.encrypted.data), is_attribute_ex
 
 
 def get_vault_schema(guid, base_dir, default_schema):
@@ -143,7 +143,7 @@ if __name__ == '__main__':
     with open(vpol_filename, 'rb') as fin:
         vpol = vaultstruct.VAULT_POL.parse(fin.read())
 
-    vpol_blob = blob.DPAPIBlob(vpol.vpol_store.blob_store.raw)
+    vpol_blob = blob.DPAPIBlob(vaultstruct.DPAPI_BLOB_STRUCT.build(vpol.vpol_store.blob_store.raw))
 
     vpol_decrypted = decrypt_blob(mkp, vpol_blob)
     if not vpol_decrypted:
@@ -173,14 +173,14 @@ if __name__ == '__main__':
                 for attribute in vcrd.attributes:
                     
                     decrypted, is_attribute_ex = decrypt_vault_attribute(
-                        attribute.VAULT_ATTRIBUTE, key_aes128, key_aes256)
+                        attribute.pointer, key_aes128, key_aes256)
 
                     if is_attribute_ex:
                         schema = current_vault_schema
                     else:
                         schema = vaultschema.VAULT_SCHEMA_SIMPLE
 
-                    attributes_data[attribute.VAULT_ATTRIBUTE.id] = {
+                    attributes_data[attribute.pointer.id] = {
                         'data': decrypted,
                         'schema': schema
                     }
@@ -191,8 +191,6 @@ if __name__ == '__main__':
                 }
 
             for k,v in sorted(attributes_data.iteritems()):
-                print 'Attribute: {0:x} ({1:s})'.format(
-                    k, v['schema'].name.lower())
                 dataout = v['schema'].parse(v['data'])
                 print '{0:s}\n'.format(dataout)
 
